@@ -2,32 +2,85 @@ import { Container } from "@/components/Container";
 import { tabsList } from "@/lib/mock";
 import { hitSlop } from "@/lib/reanimated";
 import { colorShades, layout } from "@/lib/theme";
-import { memo } from "react";
+import React, { memo, useEffect } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ScrollView, TouchableOpacity } from "react-native-gesture-handler";
-import Animated from "react-native-reanimated";
+import Animated, {
+  MeasuredDimensions,
+  measure,
+  runOnJS,
+  runOnUI,
+  scrollTo,
+  useAnimatedRef,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 type TabsProps = {
   name: string;
   isActiveTabIndex: boolean;
+  onReceiveMeasure: any;
+  scrollToTab: any;
 };
 
-const Tab = memo(({ name, isActiveTabIndex }: TabsProps) => {
-  return (
-    <View style={styles.tab}>
-      <TouchableOpacity
-        hitSlop={hitSlop}
-        style={{ marginHorizontal: layout.spacing }}
-        onPress={() => {}}>
-        <Text>{name}</Text>
-      </TouchableOpacity>
-    </View>
-  );
-});
+const Tab = memo(
+  ({ name, isActiveTabIndex, onReceiveMeasure, scrollToTab }: TabsProps) => {
+    const animatedRef = useAnimatedRef();
+
+    const handleMeasure = () => {
+      runOnUI(() => {
+        const measurements = measure(animatedRef);
+        runOnJS(onReceiveMeasure)(measurements);
+      })();
+    };
+
+    useEffect(() => {
+      if (isActiveTabIndex) {
+        handleMeasure();
+      }
+    }, [isActiveTabIndex]);
+
+    const handlePress = () => {
+      handleMeasure();
+      scrollToTab();
+    };
+
+    return (
+      <View style={styles.tab} ref={animatedRef}>
+        <TouchableOpacity
+          hitSlop={hitSlop}
+          style={{ marginHorizontal: layout.spacing }}
+          onLayout={() => {
+            // This is needed because we can't send the initial render measurements
+            // without hooking into `onLayout`.
+            if (isActiveTabIndex) {
+              handleMeasure();
+            }
+          }}
+          onPress={handlePress}
+        >
+          <Text>{name}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+);
 
 // This component should receive the selected tab measurements as props
-function Indicator() {
-  return <Animated.View style={[styles.indicator]} />;
+function Indicator({ tabMeasurements }) {
+  const tabAnimatedStyles = useAnimatedStyle(() => {
+    if (!tabMeasurements?.value) return {};
+
+    const { x, width } = tabMeasurements.value;
+
+    return {
+      left: withTiming(x),
+      width: withTiming(width),
+    };
+  });
+
+  return <Animated.View style={[styles.indicator, tabAnimatedStyles]} />;
 }
 export function DynamicTabsLesson({
   selectedTabIndex = 0,
@@ -38,20 +91,58 @@ export function DynamicTabsLesson({
   // Don't forget to check if the function exists before calling it
   onChangeTab?: (index: number) => void;
 }) {
+  const scrollViewRef = useAnimatedRef();
+
+  const tabMeasurements = useSharedValue(0);
+
+  function onReceiveMeasure(value) {
+    tabMeasurements.value = value;
+  }
+
+  const scrollToTab = (index) => {
+    runOnUI(() => {
+      "worklet";
+
+      const scrollViewDimensions: MeasuredDimensions = measure(scrollViewRef);
+
+      if (!scrollViewDimensions || !tabMeasurements.value) {
+        return;
+      }
+
+      scrollTo(
+        scrollViewRef,
+        tabMeasurements.value.x -
+          // this is how to place the item in the middle
+          (scrollViewDimensions.width - tabMeasurements.value.width) / 2,
+        0,
+        true
+      );
+
+      if (onChangeTab) {
+        runOnJS(onChangeTab)(index);
+      }
+    })();
+  };
+
   return (
     <Container>
       <ScrollView
         horizontal
         style={{ flexGrow: 0 }}
-        contentContainerStyle={styles.scrollViewContainer}>
+        contentContainerStyle={styles.scrollViewContainer}
+        ref={scrollViewRef}
+        showsHorizontalScrollIndicator={false}
+      >
         {tabsList.map((tab, index) => (
           <Tab
             key={`tab-${tab}-${index}`}
             name={tab}
             isActiveTabIndex={index === selectedTabIndex}
+            onReceiveMeasure={onReceiveMeasure}
+            scrollToTab={() => scrollToTab(index)}
           />
         ))}
-        <Indicator />
+        <Indicator tabMeasurements={tabMeasurements} />
       </ScrollView>
     </Container>
   );

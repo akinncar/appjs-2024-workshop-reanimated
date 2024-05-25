@@ -81,7 +81,7 @@ import Animated from "react-native-reanimated";
 
 <details>
 <summary>
-  <b>[5]</b> Pass `scrollX` to the `renderItem` component.
+  <b>[5]</b> Pass `onScroll` to the `renderItem` component.
 </summary>
 
 ```jsx
@@ -89,12 +89,8 @@ import Animated from "react-native-reanimated";
 
 <Animated.FlatList
   data={items}
-  renderItem={(props) => <Item {...props} scrollX={scrollX} />}
+  onScroll={onScroll} //<
 />;
-
-export function Item({ item, index, scrollX }: ItemProps) {
-  //...
-}
 ```
 
   <details>

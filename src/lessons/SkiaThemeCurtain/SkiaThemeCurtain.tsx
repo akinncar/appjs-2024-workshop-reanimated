@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Appearance,
   Dimensions,
@@ -14,8 +14,23 @@ import { Header } from "@/components/Header";
 import { SearchBar } from "@/components/SearchBar";
 import { Trending } from "@/components/Trending";
 
-import { Transition, glsl } from "@/lib/shader";
+import { Transition, glsl, transition } from "@/lib/shader";
+import {
+  Canvas,
+  Fill,
+  Image,
+  ImageShader,
+  Shader,
+  SkImage,
+  makeImageFromView,
+} from "@shopify/react-native-skia";
 import { StatusBar } from "expo-status-bar";
+import {
+  runOnJS,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 const TRANSITION_DURATION = 800;
 
@@ -58,14 +73,47 @@ vec4 transition (vec2 uv) {
 `;
 
 export function SkiaThemeCurtain() {
+  const scrollViewRef = useRef<ScrollView>(null);
+
+  const progress = useSharedValue(0);
+
+  const uniforms = useDerivedValue(() => {
+    return {
+      progress: progress.value,
+      resolution: [width, height],
+    };
+  });
+
+  const [image, setImage] = useState<SkImage | null>(null);
+  const [secondImage, setSecondImage] = useState<SkImage | null>(null);
+
+  const onPress = async () => {
+    // Take the snapshot of the view
+    const snapshot = await makeImageFromView(scrollViewRef);
+    setImage(snapshot);
+  };
+
   const colorScheme = useColorScheme();
   const changeTheme = () => {
+    onPress();
     Appearance.setColorScheme(colorScheme === "light" ? "dark" : "light");
+    progress.value = 0;
   };
 
   useEffect(() => {
     const listener = Appearance.addChangeListener(() => {
-      console.log("theme changed!");
+      setTimeout(async () => {
+        const snapshot = await makeImageFromView(scrollViewRef);
+        setSecondImage(snapshot);
+        progress.value = withTiming(
+          1,
+          { duration: TRANSITION_DURATION },
+          () => {
+            runOnJS(setImage)(null);
+            runOnJS(setSecondImage)(null);
+          }
+        );
+      }, 30);
     });
 
     return () => {
@@ -73,9 +121,49 @@ export function SkiaThemeCurtain() {
     };
   }, []);
 
+  const isTransitioning = image !== null && secondImage !== null;
+
+  if (isTransitioning) {
+    return (
+      <View style={styles.fill}>
+        <Canvas style={StyleSheet.absoluteFill}>
+          <Fill>
+            <Shader
+              uniforms={uniforms}
+              source={transition(
+                Appearance.getColorScheme() === "light" ? warpUp : warpDown
+              )}
+            >
+              <ImageShader
+                image={image}
+                fit="cover"
+                width={width}
+                height={height}
+              />
+              <ImageShader
+                image={secondImage}
+                fit="cover"
+                width={width}
+                height={height}
+              />
+            </Shader>
+          </Fill>
+        </Canvas>
+
+        <StatusBar translucent />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.fill}>
+      {image && (
+        <Canvas style={styles.overlay}>
+          <Image image={image} fit="cover" width={width} height={height} />
+        </Canvas>
+      )}
       <ScrollView
+        ref={scrollViewRef}
         style={[
           styles.container,
           { height: height },
@@ -99,6 +187,7 @@ export function SkiaThemeCurtain() {
           <Cards />
         </View>
       </ScrollView>
+
       <StatusBar translucent />
     </View>
   );
